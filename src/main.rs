@@ -1,7 +1,7 @@
-//! cvm: account switcher for Claude Code, with optional build pinning for debugging.
+//! ccam: account switcher for Claude Code, with optional build pinning for debugging.
 //!
 //! One binary, three roles, chosen by the name it is invoked as:
-//!   * `cvm`           -> management CLI
+//!   * `ccam`           -> management CLI
 //!   * `claude`        -> shim: resolves account + version, then runs the real Claude Code
 //!   * an alias name   -> same as the shim, with the alias's selector forced
 //!
@@ -21,7 +21,7 @@ use std::{env, fs};
 
 type Res<T> = Result<T, String>;
 
-/// println! that does not panic when stdout is a closed pipe (e.g. `cvm list | head`).
+/// println! that does not panic when stdout is a closed pipe (e.g. `ccam list | head`).
 macro_rules! say {
     ($($t:tt)*) => {{ let _ = writeln!(io::stdout(), $($t)*); }};
 }
@@ -39,7 +39,7 @@ const SHARED: &[&str] = &[
 const DEFAULT: &str = "default";
 const EXTERNAL: &str = "(external)";
 const LATEST: &str = "latest";
-const RC_FILE: &str = ".cvmrc";
+const RC_FILE: &str = ".ccamrc";
 const EXE_SUFFIX: &str = if cfg!(windows) { ".exe" } else { "" };
 
 // ---------------------------------------------------------------- paths
@@ -51,40 +51,40 @@ fn home() -> PathBuf {
         .map(PathBuf::from)
         .expect("cannot determine home directory")
 }
-fn cvm_home() -> PathBuf {
-    env::var_os("CVM_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".cvm"))
+fn ccam_home() -> PathBuf {
+    env::var_os("CCAM_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".ccam"))
 }
 fn accounts_dir() -> PathBuf {
-    cvm_home().join("accounts")
+    ccam_home().join("accounts")
 }
 fn bin_dir() -> PathBuf {
-    cvm_home().join("bin")
+    ccam_home().join("bin")
 }
 fn versions_dir() -> PathBuf {
-    cvm_home().join("versions")
+    ccam_home().join("versions")
 }
 fn tags_dir() -> PathBuf {
-    cvm_home().join("tags")
+    ccam_home().join("tags")
 }
 fn aliases_dir() -> PathBuf {
-    cvm_home().join("aliases")
+    ccam_home().join("aliases")
 }
 fn global_rc() -> PathBuf {
-    cvm_home().join("global")
+    ccam_home().join("global")
 }
 fn versions_flag() -> PathBuf {
-    cvm_home().join("versions-on")
+    ccam_home().join("versions-on")
 }
-/// Version pinning is a debugging feature: off unless switched on with `cvm version on`
-/// (or CVM_VERSIONS=1 for one terminal). While off, every session runs the installed build.
+/// Version pinning is a debugging feature: off unless switched on with `ccam version on`
+/// (or CCAM_VERSIONS=1 for one terminal). While off, every session runs the installed build.
 fn versions_on() -> bool {
-    match env_nonempty("CVM_VERSIONS") {
+    match env_nonempty("CCAM_VERSIONS") {
         Some(v) => v != "0",
         None => versions_flag().is_file(),
     }
 }
 const VERSIONS_OFF: &str =
-    "version pinning is off (it is a debugging feature); turn it on with: cvm version on";
+    "version pinning is off (it is a debugging feature); turn it on with: ccam version on";
 /// Where Claude Code's native installer keeps its builds.
 fn native_versions_dir() -> PathBuf {
     env::var_os("XDG_DATA_HOME")
@@ -116,7 +116,7 @@ fn account_exists(name: &str) -> bool {
 }
 fn require_account(name: &str) -> Res<()> {
     if !account_exists(name) {
-        return Err(format!("no account '{name}' (create it with: cvm account add {name})"));
+        return Err(format!("no account '{name}' (create it with: ccam account add {name})"));
     }
     Ok(())
 }
@@ -142,7 +142,7 @@ fn names_in(dir: PathBuf) -> Vec<String> {
     v
 }
 
-// ---------------------------------------------------------------- selectors and .cvmrc
+// ---------------------------------------------------------------- selectors and .ccamrc
 
 /// A choice on either axis, or both. `version` is as written: a build number, a tag, or `latest`.
 #[derive(Default, Clone, PartialEq, Debug)]
@@ -187,7 +187,7 @@ fn parse_sel_text(s: &str) -> Res<Sel> {
     })
 }
 
-/// `.cvmrc` format: `account = work` / `version = 2.1.311`, `#` comments.
+/// `.ccamrc` format: `account = work` / `version = 2.1.311`, `#` comments.
 fn parse_rc(text: &str) -> Sel {
     let mut sel = Sel::default();
     for line in text.lines() {
@@ -218,7 +218,7 @@ fn format_rc(sel: &Sel) -> String {
 fn read_rc(p: &Path) -> Option<Sel> {
     fs::read_to_string(p).ok().map(|t| parse_rc(&t))
 }
-/// Nearest `.cvmrc` in the current directory or a parent.
+/// Nearest `.ccamrc` in the current directory or a parent.
 fn find_rc() -> Option<(PathBuf, Sel)> {
     let mut dir = env::current_dir().ok()?;
     loop {
@@ -241,7 +241,7 @@ fn expand_version(v: &str) -> Res<Option<String>> {
     } else {
         read_trim(&tags_dir().join(v))
             .map(Some)
-            .ok_or_else(|| format!("no version tag '{v}' (create it with: cvm version tag {v} <version>)"))
+            .ok_or_else(|| format!("no version tag '{v}' (create it with: ccam version tag {v} <version>)"))
     }
 }
 
@@ -284,7 +284,7 @@ fn env_nonempty(name: &str) -> Option<String> {
 }
 
 /// Each axis is resolved on its own: command line, then this terminal, then the nearest
-/// `.cvmrc`, then the global choice, then the built-in default.
+/// `.ccamrc`, then the global choice, then the built-in default.
 fn resolve(forced: &Sel, forced_src: &str) -> Res<Resolved> {
     let rc = find_rc();
     let global = read_rc(&global_rc()).unwrap_or_default();
@@ -294,25 +294,25 @@ fn resolve(forced: &Sel, forced_src: &str) -> Res<Resolved> {
     if let Some(a) = &forced.account {
         require_account(a)?;
         picked = Some((a.clone(), forced_src.to_string()));
-    } else if let Some(a) = env_nonempty("CVM_ACCOUNT") {
-        require_account(&a).map_err(|e| format!("{e} [from CVM_ACCOUNT]"))?;
-        picked = Some((a, "CVM_ACCOUNT (this terminal)".into()));
+    } else if let Some(a) = env_nonempty("CCAM_ACCOUNT") {
+        require_account(&a).map_err(|e| format!("{e} [from CCAM_ACCOUNT]"))?;
+        picked = Some((a, "CCAM_ACCOUNT (this terminal)".into()));
     } else if env::var_os("CLAUDE_CONFIG_DIR").is_some() {
-        picked = Some((EXTERNAL.into(), "CLAUDE_CONFIG_DIR already set; cvm left it alone".into()));
+        picked = Some((EXTERNAL.into(), "CLAUDE_CONFIG_DIR already set; ccam left it alone".into()));
     }
     if picked.is_none() {
         // Files may name an account that does not exist on this machine (a shared repo's
-        // .cvmrc, say). That is a warning, not an error: fall through to the next source.
+        // .ccamrc, say). That is a warning, not an error: fall through to the next source.
         let from_files = [
             rc.as_ref().and_then(|(p, s)| s.account.clone().map(|a| (a, p.display().to_string()))),
-            global.account.clone().map(|a| (a, "global (cvm use)".to_string())),
+            global.account.clone().map(|a| (a, "global (ccam use)".to_string())),
         ];
         for (a, src) in from_files.into_iter().flatten() {
             if account_exists(&a) {
                 picked = Some((a, src));
                 break;
             }
-            eprintln!("cvm: warning: {src} names account '{a}', which does not exist here; ignoring it");
+            eprintln!("ccam: warning: {src} names account '{a}', which does not exist here; ignoring it");
         }
     }
     let (account, account_src) = picked.unwrap_or((DEFAULT.into(), "built-in default".into()));
@@ -321,18 +321,18 @@ fn resolve(forced: &Sel, forced_src: &str) -> Res<Resolved> {
     // --- version
     let (label, version_src) = if let Some(v) = &forced.version {
         (v.clone(), forced_src.to_string())
-    } else if let Some(v) = env_nonempty("CVM_VERSION") {
-        (v, "CVM_VERSION (this terminal)".into())
+    } else if let Some(v) = env_nonempty("CCAM_VERSION") {
+        (v, "CCAM_VERSION (this terminal)".into())
     } else if let Some((p, v)) = rc.as_ref().and_then(|(p, s)| s.version.clone().map(|v| (p, v))) {
         (v, p.display().to_string())
     } else if let Some(v) = global.version.clone() {
-        (v, "global (cvm use)".into())
+        (v, "global (ccam use)".into())
     } else {
         (LATEST.into(), "built-in default".into())
     };
     let (label, version_src) = if label != LATEST && !versions_on() {
         if forced.version.is_some() {
-            eprintln!("cvm: warning: ignoring version '{label}' from {version_src}: {VERSIONS_OFF}");
+            eprintln!("ccam: warning: ignoring version '{label}' from {version_src}: {VERSIONS_OFF}");
         }
         (LATEST.to_string(), format!("'{label}' from {version_src} ignored; version pinning is off"))
     } else {
@@ -350,7 +350,7 @@ fn same_path(a: &Path, b: &Path) -> bool {
     }
 }
 
-/// First executable called `stem` on PATH that is not in cvm's own bin folder.
+/// First executable called `stem` on PATH that is not in ccam's own bin folder.
 fn find_on_path(stem: &str) -> Option<PathBuf> {
     let names: Vec<String> = if cfg!(windows) {
         ["exe", "cmd", "bat"].iter().map(|x| format!("{stem}.{x}")).collect()
@@ -384,7 +384,7 @@ fn kept_binary(v: &str) -> PathBuf {
     versions_dir().join(v).join(exe_name("claude"))
 }
 
-/// Copy (hard-link when possible) a natively installed build into cvm's own store,
+/// Copy (hard-link when possible) a natively installed build into ccam's own store,
 /// so Claude Code's auto-cleanup of old builds cannot remove it.
 fn keep_version(v: &str) -> Res<PathBuf> {
     let dst = kept_binary(v);
@@ -393,7 +393,7 @@ fn keep_version(v: &str) -> Res<PathBuf> {
     }
     let src = native_versions_dir().join(v);
     if !src.is_file() {
-        return Err(format!("Claude Code {v} is not installed (run: cvm version install {v})"));
+        return Err(format!("Claude Code {v} is not installed (run: ccam version install {v})"));
     }
     fs::create_dir_all(dst.parent().unwrap()).map_err(|e| e.to_string())?;
     fs::hard_link(&src, &dst)
@@ -414,8 +414,8 @@ fn launch(r: &Resolved, args: &[OsString]) -> Res<()> {
     let exe = real_claude(r)?;
     let mut cmd = Command::new(&exe);
     cmd.args(args)
-        .env("CVM_ACTIVE_ACCOUNT", &r.account)
-        .env("CVM_ACTIVE_VERSION", r.version.as_deref().unwrap_or(LATEST));
+        .env("CCAM_ACTIVE_ACCOUNT", &r.account)
+        .env("CCAM_ACTIVE_VERSION", r.version.as_deref().unwrap_or(LATEST));
     if let Some(dir) = &r.config_dir {
         cmd.env("CLAUDE_CONFIG_DIR", dir);
     }
@@ -490,25 +490,25 @@ fn remove_tree(p: &Path) -> io::Result<()> {
     }
 }
 
-/// Put a command called `stem` in cvm's bin folder that runs this same binary.
+/// Put a command called `stem` in ccam's bin folder that runs this same binary.
 fn make_launcher(stem: &str) -> Res<()> {
     let bin = bin_dir();
     fs::create_dir_all(&bin).map_err(|e| e.to_string())?;
     let target = bin.join(exe_name(stem));
-    let installed = bin.join(exe_name("cvm"));
+    let installed = bin.join(exe_name("ccam"));
     let me = env::current_exe().map_err(|e| e.to_string())?;
-    // `cvm` itself is always refreshed from the running binary, so `setup` from a new
+    // `ccam` itself is always refreshed from the running binary, so `setup` from a new
     // build replaces an older install; other commands link to the installed copy.
-    let source = if stem != "cvm" && installed.is_file() { installed } else { me };
+    let source = if stem != "ccam" && installed.is_file() { installed } else { me };
     if same_path(&source, &target) {
         return Ok(());
     }
     let _ = fs::remove_file(&target);
     #[cfg(unix)]
-    let made = if stem == "cvm" {
+    let made = if stem == "ccam" {
         fs::copy(&source, &target).map(|_| ())
     } else {
-        std::os::unix::fs::symlink("cvm", &target)
+        std::os::unix::fs::symlink("ccam", &target)
     };
     #[cfg(windows)]
     let made = fs::hard_link(&source, &target).or_else(|_| fs::copy(&source, &target).map(|_| ()));
@@ -518,8 +518,8 @@ fn make_launcher(stem: &str) -> Res<()> {
 // ---------------------------------------------------------------- CLI
 
 #[derive(Parser)]
-#[command(name = "cvm", version, about = "Account switcher for Claude Code")]
-#[command(after_help = "A selector is an account name or an alias, e.g. work. With version pinning on (cvm version on), it can also be account@version or @version, e.g. work@2.1.311 or @stable.")]
+#[command(name = "ccam", version, about = "Account switcher for Claude Code")]
+#[command(after_help = "A selector is an account name or an alias, e.g. work. With version pinning on (ccam version on), it can also be account@version or @version, e.g. work@2.1.311 or @stable.")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -533,15 +533,15 @@ enum Cmd {
         #[command(subcommand)]
         cmd: AccountCmd,
     },
-    /// Debugging: pin Claude Code builds (off by default; see `cvm version on`)
+    /// Debugging: pin Claude Code builds (off by default; see `ccam version on`)
     #[command(display_order = 99)]
     Version {
         #[command(subcommand)]
         cmd: VersionCmd,
     },
-    /// Sign an account in (same as: cvm account login)
+    /// Sign an account in (same as: ccam account login)
     Login { account: String },
-    /// Save a selector under a short name, and as a command: cvm alias cw work
+    /// Save a selector under a short name, and as a command: ccam alias cw work
     Alias {
         name: Option<String>,
         selector: Option<String>,
@@ -553,7 +553,7 @@ enum Cmd {
     Unalias { name: String },
     /// Set the global choice for new `claude` sessions
     Use { selector: String },
-    /// Set the choice for the current folder (writes .cvmrc)
+    /// Set the choice for the current folder (writes .ccamrc)
     Local { selector: String },
     /// Print the shell command that switches only this terminal
     Env {
@@ -565,7 +565,7 @@ enum Cmd {
         #[arg(long)]
         unset: bool,
     },
-    /// Run Claude Code once with a selector: cvm run work -- --continue
+    /// Run Claude Code once with a selector: ccam run work -- --continue
     Run {
         selector: String,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -577,7 +577,7 @@ enum Cmd {
     /// List accounts and aliases (a grid against versions when version pinning is on)
     #[command(alias = "ls")]
     List,
-    /// Install cvm, the `claude` shim and alias commands into cvm's bin folder
+    /// Install ccam, the `claude` shim and alias commands into ccam's bin folder
     Setup,
 }
 
@@ -618,7 +618,7 @@ enum VersionCmd {
     List,
     /// Install a version with Claude Code's own installer and keep it
     Install { version: String },
-    /// Give a version a name: cvm version tag stable 2.1.311
+    /// Give a version a name: ccam version tag stable 2.1.311
     Tag { name: String, version: String },
     /// Remove a version name
     Untag { name: String },
@@ -689,7 +689,7 @@ fn cmd_account_add(name: &str, isolated: bool, from: Option<PathBuf>) -> Res<()>
         return Err(format!("account '{name}' already exists"));
     }
     if aliases_dir().join(name).is_file() {
-        return Err(format!("'{name}' is already an alias; pick another name or run: cvm unalias {name}"));
+        return Err(format!("'{name}' is already an alias; pick another name or run: ccam unalias {name}"));
     }
     let dir = account_dir(name);
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -708,7 +708,7 @@ fn cmd_account_add(name: &str, isolated: bool, from: Option<PathBuf>) -> Res<()>
             }
         }
     }
-    say!("Next: cvm login {name}");
+    say!("Next: ccam login {name}");
     Ok(())
 }
 
@@ -730,7 +730,7 @@ fn cmd_account_list() -> Res<()> {
 
 fn cmd_account_remove(name: &str, yes: bool) -> Res<()> {
     if name == DEFAULT {
-        return Err("the default account is your normal ~/.claude; cvm will not delete it".into());
+        return Err("the default account is your normal ~/.claude; ccam will not delete it".into());
     }
     require_account(name)?;
     if !yes {
@@ -780,7 +780,7 @@ fn cmd_alias(name: Option<String>, sel_text: Option<String>, force: bool) -> Res
         }
         let all = aliases();
         if all.is_empty() {
-            say!("No aliases. Create one with: cvm alias <name> <selector>");
+            say!("No aliases. Create one with: ccam alias <name> <selector>");
         }
         for (n, sel) in all {
             say!("{n:<12} = {}", sel.text());
@@ -788,7 +788,7 @@ fn cmd_alias(name: Option<String>, sel_text: Option<String>, force: bool) -> Res
         return Ok(());
     };
     valid_name("alias", &name)?;
-    if name == "cvm" || name == "claude" {
+    if name == "ccam" || name == "claude" {
         return Err(format!("'{name}' is reserved"));
     }
     if account_exists(&name) {
@@ -810,7 +810,7 @@ fn cmd_alias(name: Option<String>, sel_text: Option<String>, force: bool) -> Res
     Ok(())
 }
 
-/// Shared by `use` (global file) and `local` (.cvmrc): named parts change, the rest stay.
+/// Shared by `use` (global file) and `local` (.ccamrc): named parts change, the rest stay.
 fn set_choice(file: &Path, input: &str, what: &str) -> Res<()> {
     let sel = selector(input)?;
     let merged = sel.merged_over(&read_rc(file).unwrap_or_default());
@@ -844,15 +844,15 @@ fn cmd_env(input: Option<String>, shell: Option<String>, unset: bool) -> Res<()>
     };
     let mut parts = Vec::new();
     if unset {
-        parts.push(clear("CVM_ACCOUNT"));
-        parts.push(clear("CVM_VERSION"));
+        parts.push(clear("CCAM_ACCOUNT"));
+        parts.push(clear("CCAM_VERSION"));
     } else {
         let sel = selector(&input.ok_or("give a selector, or --unset")?)?;
         if let Some(a) = &sel.account {
-            parts.push(set("CVM_ACCOUNT", a));
+            parts.push(set("CCAM_ACCOUNT", a));
         }
         if let Some(v) = &sel.version {
-            parts.push(set("CVM_VERSION", v));
+            parts.push(set("CCAM_VERSION", v));
         }
     }
     say!("{}", parts.join(if shell == "cmd" { " & " } else { "; " }));
@@ -944,18 +944,18 @@ fn cmd_list() -> Res<()> {
 
 fn cmd_setup() -> Res<()> {
     let bin = bin_dir();
-    make_launcher("cvm")?;
+    make_launcher("ccam")?;
     make_launcher("claude")?;
     let made = aliases();
     for (n, _) in &made {
         make_launcher(n)?;
     }
-    say!("Installed cvm, the claude shim and {} alias command(s) in {}", made.len(), bin.display());
+    say!("Installed ccam, the claude shim and {} alias command(s) in {}", made.len(), bin.display());
     let claude = exe_name("claude");
     let first = env::var_os("PATH")
         .and_then(|p| env::split_paths(&p).find(|d| d.join(&claude).is_file() || d.join("claude.cmd").is_file()));
     if first.as_ref().is_some_and(|d| same_path(d, &bin)) {
-        say!("PATH is already set up: `claude` goes through cvm.");
+        say!("PATH is already set up: `claude` goes through ccam.");
     } else {
         say!("\nPut that folder ahead of the real `claude` on your PATH:");
         if cfg!(windows) {
@@ -988,7 +988,7 @@ fn cmd_version(cmd: VersionCmd) -> Res<()> {
             all.dedup();
             let tags = tags();
             if all.is_empty() {
-                say!("No versions found. Install one with: cvm version install <version>");
+                say!("No versions found. Install one with: ccam version install <version>");
             }
             for v in all {
                 let k = if kept.contains(&v) { "kept" } else { "    " };
@@ -997,7 +997,7 @@ fn cmd_version(cmd: VersionCmd) -> Res<()> {
             }
             say!("  {LATEST:<12}       whatever Claude Code is installed");
             say!("");
-            say!("Version pinning is {}.", if versions_on() { "on" } else { "off (turn on with: cvm version on)" });
+            say!("Version pinning is {}.", if versions_on() { "on" } else { "off (turn on with: ccam version on)" });
             Ok(())
         }
         VersionCmd::Install { version } => {
@@ -1055,7 +1055,7 @@ fn dispatch(cli: Cli) -> Res<()> {
             Ok(())
         }
         Cmd::Use { selector } => set_choice(&global_rc(), &selector, "Global"),
-        Cmd::Local { selector } => set_choice(Path::new(RC_FILE), &selector, "This folder (.cvmrc)"),
+        Cmd::Local { selector } => set_choice(Path::new(RC_FILE), &selector, "This folder (.ccamrc)"),
         Cmd::Env { selector, shell, unset } => cmd_env(selector, shell, unset),
         Cmd::Run { selector: input, args } => launch(&resolve(&selector(&input)?, "command line")?, &args),
         Cmd::Current => cmd_current(),
@@ -1071,7 +1071,7 @@ fn main() {
         .and_then(|a| Path::new(&a).file_stem().map(|s| s.to_string_lossy().to_lowercase()))
         .unwrap_or_default();
 
-    let alias = read_trim(&aliases_dir().join(&invoked_as)).filter(|_| invoked_as != "cvm");
+    let alias = read_trim(&aliases_dir().join(&invoked_as)).filter(|_| invoked_as != "ccam");
     let result = if let Some(saved) = alias {
         // Invoked through an alias command: its selector wins over everything else.
         let rest: Vec<OsString> = args.collect();
@@ -1085,7 +1085,7 @@ fn main() {
         dispatch(Cli::parse())
     };
     if let Err(e) = result {
-        eprintln!("cvm: {e}");
+        eprintln!("ccam: {e}");
         std::process::exit(1);
     }
 }

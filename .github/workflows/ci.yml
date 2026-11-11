@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: cargo build --release --locked
+      - name: Test
+        run: cargo test --locked
+      - name: Smoke test
+        shell: bash
+        run: |
+          export CCAM_HOME="$RUNNER_TEMP/ccam-home"
+          ./target/release/ccam --version
+          ./target/release/ccam account add work --isolated
+          ./target/release/ccam local work
+          grep -q "account = work" .ccamrc
+          ./target/release/ccam list

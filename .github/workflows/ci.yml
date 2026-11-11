@@ -44,6 +44,19 @@ jobs:
           ./target/release/ccam local work
           grep -q "account = work" .ccamrc
           ./target/release/ccam list
+      - name: Doctor repairs PATH (macOS, Linux)
+        if: runner.os != 'Windows'
+        run: |
+          export CCAM_HOME="$RUNNER_TEMP/doctor-home" HOME="$RUNNER_TEMP/fake-home" SHELL=/bin/bash
+          mkdir -p "$HOME"
+          # Claude Code is not installed on the runner, so doctor reports that and exits 1.
+          ./target/release/ccam doctor --fix || true
+          test -x "$CCAM_HOME/bin/ccam"
+          test -e "$CCAM_HOME/bin/claude"
+          grep -qs "doctor-home/bin" "$HOME/.bashrc" "$HOME/.bash_profile"
+          # A second run must not add the line again.
+          ./target/release/ccam doctor --fix || true
+          test "$(cat "$HOME/.bashrc" "$HOME/.bash_profile" 2>/dev/null | grep -c 'doctor-home/bin')" = 1
 
   install:
     name: Installers (${{ matrix.os }})

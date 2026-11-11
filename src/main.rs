@@ -21,6 +21,9 @@ use std::{env, fs};
 
 type Res<T> = Result<T, String>;
 
+/// Set by `doctor`, which reports problems itself instead of through warnings on stderr.
+static QUIET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// println! that does not panic when stdout is a closed pipe (e.g. `ccam list | head`).
 macro_rules! say {
     ($($t:tt)*) => {{ let _ = writeln!(io::stdout(), $($t)*); }};
@@ -312,7 +315,9 @@ fn resolve(forced: &Sel, forced_src: &str) -> Res<Resolved> {
                 picked = Some((a, src));
                 break;
             }
-            eprintln!("ccam: warning: {src} names account '{a}', which does not exist here; ignoring it");
+            if !QUIET.load(std::sync::atomic::Ordering::Relaxed) {
+                eprintln!("ccam: warning: {src} names account '{a}', which does not exist here; ignoring it");
+            }
         }
     }
     let (account, account_src) = picked.unwrap_or((DEFAULT.into(), "built-in default".into()));
@@ -579,6 +584,12 @@ enum Cmd {
     List,
     /// Install ccam, the `claude` shim and alias commands into ccam's bin folder
     Setup,
+    /// Check that ccam is set up correctly, and say how to fix what is not
+    Doctor {
+        /// Repair what can be repaired: reinstall the shim and put ccam first on PATH
+        #[arg(long)]
+        fix: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -942,19 +953,22 @@ fn cmd_list() -> Res<()> {
     Ok(())
 }
 
-fn cmd_setup() -> Res<()> {
-    let bin = bin_dir();
+/// Create (or refresh) `ccam`, the `claude` shim and every alias command in the bin folder.
+fn install_launchers() -> Res<usize> {
     make_launcher("ccam")?;
     make_launcher("claude")?;
     let made = aliases();
     for (n, _) in &made {
         make_launcher(n)?;
     }
-    say!("Installed ccam, the claude shim and {} alias command(s) in {}", made.len(), bin.display());
-    let claude = exe_name("claude");
-    let first = env::var_os("PATH")
-        .and_then(|p| env::split_paths(&p).find(|d| d.join(&claude).is_file() || d.join("claude.cmd").is_file()));
-    if first.as_ref().is_some_and(|d| same_path(d, &bin)) {
+    Ok(made.len())
+}
+
+fn cmd_setup() -> Res<()> {
+    let bin = bin_dir();
+    let count = install_launchers()?;
+    say!("Installed ccam, the claude shim and {count} alias command(s) in {}", bin.display());
+    if path_state() == PathState::Ok {
         say!("PATH is already set up: `claude` goes through ccam.");
     } else {
         say!("\nPut that folder ahead of the real `claude` on your PATH:");
@@ -963,6 +977,308 @@ fn cmd_setup() -> Res<()> {
         }
         say!("  bash/zsh rc file:    export PATH=\"{}:$PATH\"", bin.display().to_string().replace('\\', "/"));
         say!("  fish:                fish_add_path {}", bin.display());
+        say!("\nOr let ccam do it for you:  ccam doctor --fix");
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------- doctor
+
+#[derive(Debug, PartialEq)]
+enum PathState {
+    /// ccam's bin folder is reached before any other folder that has `claude`.
+    Ok,
+    /// ccam's bin folder is on PATH, but this folder has a `claude` and comes first.
+    Shadowed(PathBuf),
+    /// ccam's bin folder is not on PATH.
+    Missing,
+}
+
+fn has_claude(dir: &Path) -> bool {
+    let names: &[&str] = if cfg!(windows) { &["claude.exe", "claude.cmd", "claude.bat"] } else { &["claude"] };
+    names.iter().any(|n| dir.join(n).is_file())
+}
+
+fn classify_path(
+    dirs: &[PathBuf],
+    bin: &Path,
+    has_claude: &dyn Fn(&Path) -> bool,
+    same: &dyn Fn(&Path, &Path) -> bool,
+) -> PathState {
+    let mut shadow: Option<PathBuf> = None;
+    for d in dirs {
+        if same(d, bin) {
+            return match shadow {
+                None => PathState::Ok,
+                Some(s) => PathState::Shadowed(s),
+            };
+        }
+        if shadow.is_none() && has_claude(d) {
+            shadow = Some(d.clone());
+        }
+    }
+    PathState::Missing
+}
+
+fn path_state() -> PathState {
+    let dirs: Vec<PathBuf> = env::var_os("PATH").map(|p| env::split_paths(&p).collect()).unwrap_or_default();
+    classify_path(&dirs, &bin_dir(), &has_claude, &|a, b| a == b || same_path(a, b))
+}
+
+/// Startup file and the line to add to it, for the user's login shell.
+#[cfg_attr(windows, allow(dead_code))]
+fn shell_rc(shell: &str, home: &Path, zdotdir: Option<&Path>, macos: bool, bin: &Path) -> (PathBuf, String) {
+    let bin = bin.display();
+    let export = format!("export PATH=\"{bin}:$PATH\"");
+    if shell.ends_with("fish") {
+        (home.join(".config").join("fish").join("config.fish"), format!("fish_add_path --prepend \"{bin}\""))
+    } else if shell.ends_with("zsh") {
+        (zdotdir.unwrap_or(home).join(".zshrc"), export)
+    } else if shell.ends_with("bash") {
+        (home.join(if macos { ".bash_profile" } else { ".bashrc" }), export)
+    } else {
+        (home.join(".profile"), export)
+    }
+}
+
+/// Put ccam's bin folder at the front of PATH for future terminals.
+#[cfg(windows)]
+fn fix_path(bin: &Path) -> Res<String> {
+    // The user PATH lives in the registry; PowerShell edits it and tells running
+    // programs that it changed. The folder is passed through the environment so
+    // nothing needs quoting.
+    let script = "$b = $env:CCAM_FIX_BIN; \
+        $p = [Environment]::GetEnvironmentVariable('Path', 'User'); \
+        $rest = @($p -split ';' | Where-Object { $_ -and ($_.TrimEnd([char]92) -ne $b.TrimEnd([char]92)) }); \
+        [Environment]::SetEnvironmentVariable('Path', ((@($b) + $rest) -join ';'), 'User')";
+    let out = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .env("CCAM_FIX_BIN", bin)
+        .output()
+        .map_err(|e| format!("could not run PowerShell: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("could not change the user PATH: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    Ok(format!("moved {} to the front of your user PATH", bin.display()))
+}
+
+#[cfg(unix)]
+fn fix_path(bin: &Path) -> Res<String> {
+    let shell = env::var("SHELL").unwrap_or_default();
+    let zdotdir = env::var_os("ZDOTDIR").map(PathBuf::from);
+    let (rc, line) = shell_rc(&shell, &home(), zdotdir.as_deref(), cfg!(target_os = "macos"), bin);
+    let existing = fs::read_to_string(&rc).unwrap_or_default();
+    if existing.contains(&bin.display().to_string()) {
+        return Ok(format!(
+            "{} already adds it; if a new terminal still shows this problem, move that line to the end of the file",
+            rc.display()
+        ));
+    }
+    if let Some(parent) = rc.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let mut text = existing;
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(&format!("\n# ccam: Claude Code account manager\n{line}\n"));
+    fs::write(&rc, text).map_err(|e| format!("{}: {e}", rc.display()))?;
+    Ok(format!("added it to PATH in {}", rc.display()))
+}
+
+#[derive(Default)]
+struct Doctor {
+    fails: u32,
+    warns: u32,
+    fixed: u32,
+}
+
+impl Doctor {
+    fn ok(&self, msg: &str) {
+        say!("  ok    {msg}");
+    }
+    fn note(&self, msg: &str) {
+        say!("  note  {msg}");
+    }
+    fn fixed(&mut self, msg: &str) {
+        self.fixed += 1;
+        say!("  fixed {msg}");
+    }
+    fn warn(&mut self, msg: &str, hint: &str) {
+        self.warns += 1;
+        say!("  warn  {msg}");
+        if !hint.is_empty() {
+            say!("        {hint}");
+        }
+    }
+    fn fail(&mut self, msg: &str, hint: &str) {
+        self.fails += 1;
+        say!("  FAIL  {msg}");
+        if !hint.is_empty() {
+            say!("        {hint}");
+        }
+    }
+}
+
+fn same_build(a: &Path, b: &Path) -> bool {
+    same_path(a, b) || matches!((fs::read(a), fs::read(b)), (Ok(x), Ok(y)) if x == y)
+}
+
+fn is_link(p: &Path) -> bool {
+    fs::symlink_metadata(p).map(|m| m.file_type().is_symlink()).unwrap_or(false) || is_junction(p)
+}
+
+fn cmd_doctor(fix: bool) -> Res<()> {
+    let bin = bin_dir();
+    let mut d = Doctor::default();
+    say!("ccam {}\n", env!("CARGO_PKG_VERSION"));
+
+    // Install: the copy in the bin folder, the claude shim, alias commands.
+    let me = env::current_exe().map_err(|e| e.to_string())?;
+    let installed = bin.join(exe_name("ccam"));
+    let shim = bin.join(exe_name("claude"));
+    let stale = |p: &Path| !p.exists() || (cfg!(windows) && !same_build(p, &me));
+    let stale_alias = aliases().iter().any(|(n, _)| stale(&bin.join(exe_name(n))));
+    if fix && (stale(&installed) || stale(&shim) || stale_alias) {
+        install_launchers()?;
+        d.fixed(&format!("installed ccam, the claude shim and alias commands in {}", bin.display()));
+    } else if !installed.is_file() {
+        d.fail(&format!("ccam is not installed in {}", bin.display()), "run: ccam setup");
+    } else if !same_build(&installed, &me) {
+        d.warn(
+            &format!("the copy in {} is a different build from the ccam you are running", bin.display()),
+            "run: ccam setup",
+        );
+    } else {
+        d.ok(&format!("ccam is installed in {}", bin.display()));
+    }
+    if !shim.exists() {
+        d.fail("the `claude` shim is missing", "run: ccam setup");
+    } else if cfg!(windows) && installed.is_file() && !same_build(&shim, &installed) {
+        d.warn("the `claude` shim is from a different build", "run: ccam setup");
+    } else {
+        d.ok("the `claude` shim is in place");
+    }
+
+    // PATH.
+    match path_state() {
+        PathState::Ok => d.ok("PATH: `claude` goes through ccam"),
+        state => {
+            let what = match &state {
+                PathState::Shadowed(dir) => {
+                    format!("PATH: {} has a `claude` and comes before {}", dir.display(), bin.display())
+                }
+                _ => format!("PATH: {} is not on PATH", bin.display()),
+            };
+            if fix {
+                match fix_path(&bin) {
+                    Ok(done) => {
+                        d.fixed(&format!("{what}; {done}"));
+                        say!("        open a new terminal for it to take effect");
+                        if cfg!(windows) && matches!(state, PathState::Shadowed(_)) {
+                            say!("        if it still shows here afterwards, that folder is on the system-wide PATH,");
+                            say!("        which Windows puts ahead of your own; move or remove it there");
+                        }
+                    }
+                    Err(e) => d.fail(&what, &e),
+                }
+            } else {
+                d.fail(&what, "fix it with: ccam doctor --fix");
+            }
+        }
+    }
+
+    // The real Claude Code.
+    match find_installed_claude() {
+        Ok(p) => {
+            let version = Command::new(&p)
+                .arg("--version")
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .filter(|v| !v.is_empty());
+            match version {
+                Some(v) => d.ok(&format!("Claude Code {} at {}", v.trim_end_matches("(Claude Code)").trim(), p.display())),
+                None => d.warn(&format!("found Claude Code at {} but `--version` failed", p.display()), ""),
+            }
+        }
+        Err(e) => d.fail(&e, ""),
+    }
+
+    // Accounts.
+    for name in account_names() {
+        let dir = if name == DEFAULT { home().join(".claude") } else { account_dir(&name) };
+        let broken: Vec<&str> = SHARED
+            .iter()
+            .copied()
+            .filter(|item| {
+                let p = dir.join(item);
+                name != DEFAULT && is_link(&p) && fs::metadata(&p).is_err()
+            })
+            .collect();
+        if !broken.is_empty() {
+            d.warn(
+                &format!("account {name}: shared {} no longer point anywhere", broken.join(", ")),
+                &format!("the folder they were shared from has moved; delete them in {}", dir.display()),
+            );
+        }
+        match account_email(&name) {
+            Some(email) => d.ok(&format!("account {name}: signed in as {email}")),
+            None if name == DEFAULT => d.note("account default: not signed in"),
+            None => d.warn(&format!("account {name}: not signed in"), &format!("run: ccam login {name}")),
+        }
+    }
+
+    // Aliases.
+    for (name, sel) in aliases() {
+        match &sel.account {
+            Some(a) if !account_exists(a) => d.warn(
+                &format!("alias {name} points at account '{a}', which does not exist"),
+                &format!("run: ccam unalias {name}"),
+            ),
+            _ if !bin.join(exe_name(&name)).exists() => {
+                d.warn(&format!("alias {name} has no command in {}", bin.display()), "run: ccam setup")
+            }
+            _ => d.ok(&format!("alias {name} = {}", sel.text())),
+        }
+    }
+
+    // What `claude` would do right here.
+    if let Some((file, sel)) = find_rc() {
+        if let Some(a) = sel.account.as_ref().filter(|a| !account_exists(a)) {
+            d.warn(
+                &format!("{} names account '{a}', which does not exist here", file.display()),
+                &format!("create it with: ccam account add {a}"),
+            );
+        }
+    }
+    if env_nonempty("CCAM_ACCOUNT").is_none() {
+        if let Some(dir) = env_nonempty("CLAUDE_CONFIG_DIR") {
+            d.note(&format!("CLAUDE_CONFIG_DIR is set to {dir} in this terminal; ccam leaves it alone"));
+        }
+    }
+    if versions_on() {
+        d.note("version pinning is on (ccam version off to disable)");
+    }
+    QUIET.store(true, std::sync::atomic::Ordering::Relaxed);
+    match resolve(&Sel::default(), "") {
+        Ok(r) => d.ok(&format!("here, `claude` runs as {} ({})", r.account, r.account_src)),
+        Err(e) => d.fail(&format!("cannot work out which account to use here: {e}"), ""),
+    }
+
+    say!("");
+    let plural = |n: u32, word: &str| format!("{n} {word}{}", if n == 1 { "" } else { "s" });
+    if d.fixed > 0 {
+        say!("Fixed {}.", plural(d.fixed, "thing"));
+    }
+    if d.fails > 0 {
+        return Err(format!("{} and {} found", plural(d.fails, "problem"), plural(d.warns, "warning")));
+    }
+    if d.warns > 0 {
+        say!("No problems, {}.", plural(d.warns, "warning"));
+    } else if d.fixed == 0 {
+        say!("Everything looks good.");
     }
     Ok(())
 }
@@ -1061,6 +1377,7 @@ fn dispatch(cli: Cli) -> Res<()> {
         Cmd::Current => cmd_current(),
         Cmd::List => cmd_list(),
         Cmd::Setup => cmd_setup(),
+        Cmd::Doctor { fix } => cmd_doctor(fix),
     }
 }
 
@@ -1155,5 +1472,44 @@ mod tests {
         assert!(valid_name("alias", "2fast").is_err());
         assert!(valid_name("alias", "a b").is_err());
         assert!(valid_name("alias", "").is_err());
+    }
+
+    #[test]
+    fn path_states() {
+        let p = |s: &str| PathBuf::from(s);
+        let bin = p("/home/u/.ccam/bin");
+        let has = |d: &Path| d == Path::new("/usr/local/bin") || d == Path::new("/home/u/.ccam/bin");
+        let same = |a: &Path, b: &Path| a == b;
+        let state = |dirs: &[&str]| {
+            let dirs: Vec<PathBuf> = dirs.iter().map(|d| p(d)).collect();
+            classify_path(&dirs, &bin, &has, &same)
+        };
+        assert_eq!(state(&["/home/u/.ccam/bin", "/usr/local/bin"]), PathState::Ok);
+        assert_eq!(state(&["/usr/bin", "/home/u/.ccam/bin", "/usr/local/bin"]), PathState::Ok);
+        assert_eq!(state(&["/usr/local/bin", "/home/u/.ccam/bin"]), PathState::Shadowed(p("/usr/local/bin")));
+        assert_eq!(state(&["/usr/local/bin", "/usr/bin"]), PathState::Missing);
+        assert_eq!(state(&[]), PathState::Missing);
+    }
+
+    #[test]
+    fn shell_startup_files() {
+        let home = Path::new("/home/u");
+        let bin = Path::new("/home/u/.ccam/bin");
+        let export = "export PATH=\"/home/u/.ccam/bin:$PATH\"".to_string();
+        assert_eq!(shell_rc("/bin/zsh", home, None, true, bin), (home.join(".zshrc"), export.clone()));
+        assert_eq!(
+            shell_rc("/bin/zsh", home, Some(Path::new("/z")), false, bin),
+            (Path::new("/z").join(".zshrc"), export.clone())
+        );
+        assert_eq!(shell_rc("/bin/bash", home, None, false, bin), (home.join(".bashrc"), export.clone()));
+        assert_eq!(shell_rc("/bin/bash", home, None, true, bin), (home.join(".bash_profile"), export.clone()));
+        assert_eq!(shell_rc("/bin/sh", home, None, false, bin), (home.join(".profile"), export));
+        assert_eq!(
+            shell_rc("/usr/bin/fish", home, None, false, bin),
+            (
+                home.join(".config").join("fish").join("config.fish"),
+                "fish_add_path --prepend \"/home/u/.ccam/bin\"".to_string()
+            )
+        );
     }
 }

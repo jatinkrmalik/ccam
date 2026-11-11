@@ -23,6 +23,10 @@ An account is one Claude Code login. Each has its own config folder (`CLAUDE_CON
 
 ## Install
 
+Download the archive for your platform from the [releases page](https://github.com/jatinkrmalik/ccam/releases), unpack it, and run `ccam setup` from the unpacked folder.
+
+Or build from source (needs Rust):
+
 ```bash
 cargo build --release
 ```

@@ -4,6 +4,11 @@ version = "0.4.0"
 edition = "2021"
 description = "Account switcher for Claude Code, with optional build pinning for debugging"
 license = "MIT"
+repository = "https://github.com/jatinkrmalik/ccam"
+readme = "README.md"
+keywords = ["claude", "claude-code", "account", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = ["assets/", ".github/"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

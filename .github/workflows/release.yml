@@ -2,8 +2,10 @@ name: Release
 
 # Builds ccam for each platform and attaches the archives to the GitHub release
 # for the pushed tag, then publishes the crate to crates.io and the wrapper
-# package to npm. Create the release first (gh release create vX.Y.Z); that
-# pushes the tag and starts this workflow.
+# package to npm. Create the release first, as a pre-release
+# (gh release create vX.Y.Z --prerelease); that pushes the tag and starts this
+# workflow. The last job turns it into the latest release once the archives are
+# attached, so the installers never see a "latest" release without binaries.
 #
 # Publishing uses trusted publishing (OIDC): no tokens are stored. Both registries
 # must list this repository and the workflow file "release.yml" as a trusted
@@ -109,3 +111,13 @@ jobs:
       - name: Publish
         working-directory: npm
         run: npm publish --access public
+
+  promote:
+    name: Mark as latest release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Promote the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --prerelease=false --latest

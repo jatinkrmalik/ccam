@@ -3,7 +3,7 @@
 Switch between multiple Claude Code accounts on one machine. Like nvm, for Claude Code logins: choose an account per terminal, per project or globally. Works on Windows, macOS and Linux.
 
 ```bash
-npm install -g ccam
+npm install -g ccam-cli
 ccam setup
 ```
 

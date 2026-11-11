@@ -473,7 +473,9 @@ fn make_launcher(stem: &str) -> Res<()> {
     let target = bin.join(exe_name(stem));
     let installed = bin.join(exe_name("cvm"));
     let me = env::current_exe().map_err(|e| e.to_string())?;
-    let source = if installed.is_file() { installed } else { me };
+    // `cvm` itself is always refreshed from the running binary, so `setup` from a new
+    // build replaces an older install; other commands link to the installed copy.
+    let source = if stem != "cvm" && installed.is_file() { installed } else { me };
     if same_path(&source, &target) {
         return Ok(());
     }

@@ -71,5 +71,9 @@ jobs:
         shell: bash
         run: |
           cd npm
+          # The package downloads the release that matches its version. On a version
+          # bump that release does not exist yet, so test against the latest one.
+          latest=$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/jatinkrmalik/ccam/releases/latest)
+          npm pkg set version="${latest##*/v}"
           npm install -g .
           ccam --version

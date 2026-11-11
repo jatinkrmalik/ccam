@@ -10,9 +10,12 @@ set -u
 [ $# -eq 1 ] || { echo "usage: $0 <path to ccam binary>" >&2; exit 2; }
 BIN_SRC="$1"
 [ -f "$BIN_SRC" ] || { echo "$BIN_SRC: no such file" >&2; exit 2; }
+BIN_SRC="$(cd "$(dirname "$BIN_SRC")" && pwd -P)/$(basename "$BIN_SRC")"
 T="$(cd "$(mktemp -d)" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/realbin"
+# Work from the throwaway folder, so a .ccamrc in the caller's folder cannot leak in.
+cd "$T"
 # bash reads .bash_profile on macOS and .bashrc on Linux; ccam follows the same rule.
 if [ "$(uname -s)" = "Darwin" ]; then BASHRC=.bash_profile; else BASHRC=.bashrc; fi
 pass=0; fail=0

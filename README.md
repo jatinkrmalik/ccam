@@ -244,6 +244,12 @@ cargo build --release
 cargo test
 ```
 
+On macOS and Linux, the end-to-end test runs every command against a throwaway home folder, with a stand-in for Claude Code:
+
+```bash
+bash tests/e2e.sh target/release/ccam
+```
+
 On Windows, if a build fails with `LNK1104`, the project path is too long; set `CARGO_TARGET_DIR` to a short folder.
 
 ### Releasing

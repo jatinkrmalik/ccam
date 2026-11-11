@@ -2,36 +2,24 @@
 
 # cvm
 
-![version](https://img.shields.io/badge/version-0.2.0-2563eb)
+![version](https://img.shields.io/badge/version-0.3.0-2563eb)
 ![status](https://img.shields.io/badge/status-prototype-f59e0b)
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-64748b)
 ![tested on](https://img.shields.io/badge/tested%20on-Windows-0ea5e9)
 ![built with Rust](https://img.shields.io/badge/built%20with-Rust-b7410e?logo=rust&logoColor=white)
 ![license](https://img.shields.io/badge/license-MIT-16a34a)
 
-Account and version manager for Claude Code: nvm, but for logins as well as builds.
+Account switcher for Claude Code: keep several logins on one machine and choose between them per terminal, per project or globally.
 
-cvm puts a `claude` shim on your PATH. Every time you run `claude`, the shim picks an account and a version, then starts the real Claude Code. Works on Windows, macOS and Linux; one small binary, no runtime.
+cvm puts a `claude` shim on your PATH. Every time you run `claude`, the shim picks an account, then starts the real Claude Code. Works on Windows, macOS and Linux; one small binary, no runtime.
 
 Prototype status: CLI only, tested on Windows. Not affiliated with Anthropic.
 
-## The model
+## Accounts
 
-Two independent choices:
+An account is one Claude Code login. Each has its own config folder (`CLAUDE_CONFIG_DIR`), so its own sign-in and history. Your existing `~/.claude` is the built-in `default` account; cvm never modifies or deletes it.
 
-- **Account**: who is signed in. Each account is its own Claude Code config folder (`CLAUDE_CONFIG_DIR`) with its own login and history. Your existing `~/.claude` is the built-in `default` account; cvm never modifies or deletes it.
-- **Version**: which build runs. A number (`2.1.311`), a tag you define (`stable`), or `latest`, meaning whatever Claude Code is installed.
-
-A **selector** names one or both:
-
-| Selector | Means |
-|---|---|
-| `work` | account `work`, version unchanged |
-| `work@2.1.311` | account `work`, that build |
-| `work@stable` | account `work`, the build tagged `stable` |
-| `@latest` | account unchanged, installed build |
-
-An **alias** is a saved selector with a short name. It is also a command.
+`cvm profile` is an alias for `cvm account`, if you prefer that word.
 
 ## Install
 
@@ -48,76 +36,55 @@ cargo build --release
 ## Use
 
 ```bash
-cvm account add work            # new account; shares skills, plugins, settings from ~/.claude
-cvm login work                  # sign in once
-cvm version tag stable 2.1.311  # name a build
-cvm alias cw work@stable        # `cw` now starts Claude Code as work on stable
-cvm use work                    # global choice for plain `claude`
-cvm list                        # accounts against versions
-cvm current                     # what `claude` would use here, and why
+cvm account add work    # new account; shares skills, plugins, settings from ~/.claude
+cvm login work          # sign in once
+cvm use work            # global choice for plain `claude`
+cvm alias cw work       # `cw` now starts Claude Code as work
+cvm list                # accounts, who is signed in, aliases
+cvm current             # what `claude` would use here, and why
 ```
 
-`cvm list` shows the grid, with alias names in the cells and `*` on the current choice:
-
 ```
-         latest   2.1.310 (old)   2.1.311 (stable)
-default  .        .               .                    you@example.com
-home     ch       .               *                    not signed in
-work     we       .               cw                   not signed in
+  default          you@example.com
+* work             you@work.example   aliases: cw
 ```
 
-`cvm run work@2.1.310 -- --continue` runs one command with a selector without changing anything.
+`cvm run work -- --continue` runs one command as an account without changing anything.
 
 ## Where the choice comes from
 
-Account and version are resolved separately. For each, the first source that sets it wins:
+The first source that names an account wins:
 
 | Order | Source | Set with |
 |---|---|---|
-| 1 | An alias command or `cvm run` | `cw`, `cvm run work@stable` |
-| 2 | This terminal | `eval "$(cvm env work@stable)"` (PowerShell: `cvm env work@stable \| Invoke-Expression`) |
-| 3 | Nearest `.cvmrc`, in this folder or a parent | `cvm local work@stable` |
-| 4 | Global | `cvm use work@stable` |
-| 5 | Built-in | account `default`, version `latest` |
+| 1 | An alias command or `cvm run` | `cw`, `cvm run work` |
+| 2 | This terminal | `eval "$(cvm env work)"` (PowerShell: `cvm env work \| Invoke-Expression`) |
+| 3 | Nearest `.cvmrc`, in this folder or a parent | `cvm local work` |
+| 4 | Global | `cvm use work` |
+| 5 | Built-in | `default` |
 
-`cvm use` and `cvm local` change only the parts the selector names. `cvm use @latest` drops a global version pin and keeps the account.
-
-If `CLAUDE_CONFIG_DIR` is already set and nothing in rows 1 or 2 names an account, cvm leaves the account alone.
+If `CLAUDE_CONFIG_DIR` is already set and nothing in rows 1 or 2 names an account, cvm leaves it alone.
 
 ## `.cvmrc`
 
-One file per project, like `.nvmrc` or `.sdkmanrc`. Both lines are optional.
+One file per project, like `.nvmrc` or `.sdkmanrc`.
 
 ```
 # .cvmrc
 account = work
-version = 2.1.311
 ```
 
-- `version` can be a number, a tag or `latest`.
-- An account that does not exist on this machine is skipped with a warning, and the next source is used. A shared repository can commit a `.cvmrc` without breaking teammates who name their accounts differently.
-- A version that is not installed is an error; cvm tells you to run `cvm version install`.
-
-## Versions
-
-```bash
-cvm version list             # installed builds, which are kept, and their tags
-cvm version install 2.1.311  # runs `claude install`, then keeps the build
-cvm version tag stable 2.1.311
-cvm version untag stable
-```
-
-Any build you select is kept in `~/.cvm/versions` (hard-linked, so no extra disk space), where Claude Code's own cleanup cannot remove it. Pinned builds run with auto-update off. Tags are stored by name, so moving `stable` to a new build moves every alias and `.cvmrc` that uses it.
+An account that does not exist on this machine is skipped with a warning, and the next source is used. A shared repository can commit a `.cvmrc` without breaking teammates who name their accounts differently.
 
 ## Aliases
 
 ```bash
-cvm alias cw work@stable   # create
-cvm alias                  # list
-cvm unalias cw             # delete
+cvm alias cw work   # create
+cvm alias           # list
+cvm unalias cw      # delete
 ```
 
-An alias name works anywhere a selector does (`cvm use cw`). cvm refuses a name that would hide another command on your PATH unless you pass `--force`.
+An alias is a saved choice and also a command. Its name works anywhere an account name does (`cvm use cw`). cvm refuses a name that would hide another command on your PATH unless you pass `--force`.
 
 ## Shared setup
 
@@ -127,14 +94,41 @@ Not shared: login, history, and anything in `.claude.json`, which includes MCP s
 
 ## Status line
 
-The shim exports `CVM_ACTIVE_ACCOUNT` and `CVM_ACTIVE_VERSION` to Claude Code, so a status line script or shell prompt can show them.
+The shim exports `CVM_ACTIVE_ACCOUNT` to Claude Code, so a status line script or shell prompt can show it.
+
+## Debugging: pinning a build
+
+Off by default. Claude Code updates itself and projects do not depend on a particular build, so normally every account runs whatever is installed. Pinning exists for rolling back a bad release or reproducing a bug on a specific build.
+
+```bash
+cvm version on                  # enable (cvm version off to disable)
+cvm version list                # installed builds and tags
+cvm version install 2.1.311     # runs `claude install`, then keeps the build
+cvm version tag stable 2.1.311  # name a build
+```
+
+While it is on, a selector can carry a version, anywhere an account name is accepted:
+
+| Selector | Means |
+|---|---|
+| `work@2.1.311` | account `work`, that build |
+| `work@stable` | account `work`, the build tagged `stable` |
+| `@latest` | account unchanged, installed build |
+
+- `.cvmrc` accepts a second line, `version = 2.1.311`.
+- Account and version resolve separately through the same five sources; `cvm use` and `cvm local` change only the parts the selector names.
+- `cvm list` becomes a grid of accounts against versions, with alias names in the cells.
+- Selected builds are kept in `~/.cvm/versions` (hard-linked, so no extra disk space) and run with auto-update off.
+- `CVM_VERSIONS=1` turns it on for one terminal.
+
+While it is off, version pins in `.cvmrc`, the global choice and aliases are kept but ignored, and `cvm current` says so. Tags and kept builds are not deleted.
 
 ## Limits
 
 - A switch affects new sessions only. A running session keeps its account.
 - cvm manages the `claude` CLI. The Claude desktop app keeps its own sign-in and its own Claude Code build and does not go through the shim.
 - On Windows without Developer Mode, `settings.json` is shared as a hard link. If Claude Code replaces the file instead of editing it in place, the accounts' copies drift apart.
-- `cvm version install` uses Claude Code's installer, which may also change the installed (`latest`) build.
+- `cvm version install` uses Claude Code's installer, which may also change the installed build.
 - Built and tested on Windows only. The macOS and Linux code paths have not been run.
 - `cvm account remove` deletes that account's login and history, and any aliases pointing at it. It never follows links into the shared folders.
 
@@ -145,9 +139,10 @@ The shim exports `CVM_ACTIVE_ACCOUNT` and `CVM_ACTIVE_VERSION` to Claude Code, s
   global            global choice, same format as .cvmrc
   bin/              cvm, the claude shim, alias commands
   accounts/<name>/  one Claude Code config folder per account
+  aliases/<name>    saved choices
+  versions-on       present when version pinning is on
   versions/<v>/     kept Claude Code builds
   tags/<name>       version tags
-  aliases/<name>    saved selectors
 ```
 
 Set `CVM_HOME` to move it.

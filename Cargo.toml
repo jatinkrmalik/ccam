@@ -2,13 +2,14 @@
 name = "ccam"
 version = "0.4.0"
 edition = "2021"
-description = "Account switcher for Claude Code, with optional build pinning for debugging"
+description = "Switch between multiple Claude Code accounts on one machine: per terminal, per project or global"
 license = "MIT"
 repository = "https://github.com/jatinkrmalik/ccam"
 readme = "README.md"
-keywords = ["claude", "claude-code", "account", "cli"]
+keywords = ["claude", "claude-code", "anthropic", "account-switcher", "cli"]
+homepage = "https://github.com/jatinkrmalik/ccam"
 categories = ["command-line-utilities", "development-tools"]
-exclude = ["assets/", ".github/"]
+exclude = ["assets/", ".github/", "npm/", "install.sh", "install.ps1"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

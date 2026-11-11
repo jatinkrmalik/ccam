@@ -1,0 +1,45 @@
+{
+  "name": "ccam",
+  "version": "0.4.0",
+  "description": "Switch between multiple Claude Code accounts on one machine. Like nvm, for Claude Code logins.",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "anthropic",
+    "account-switcher",
+    "multiple-accounts",
+    "profile",
+    "cli",
+    "ai",
+    "developer-tools"
+  ],
+  "homepage": "https://github.com/jatinkrmalik/ccam#readme",
+  "bugs": "https://github.com/jatinkrmalik/ccam/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jatinkrmalik/ccam.git",
+    "directory": "npm"
+  },
+  "license": "MIT",
+  "author": "Jatin K Malik",
+  "bin": {
+    "ccam": "bin/ccam.js"
+  },
+  "files": [
+    "bin/ccam.js",
+    "install.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ]
+}

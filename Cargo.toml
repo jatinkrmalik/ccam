@@ -1,8 +1,8 @@
 [package]
 name = "cvm"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
-description = "Account and version manager for Claude Code (like nvm, for logins and builds)"
+description = "Account switcher for Claude Code, with optional build pinning for debugging"
 license = "MIT"
 
 [dependencies]

@@ -1,4 +1,4 @@
-//! cvm: account and version manager for Claude Code.
+//! cvm: account switcher for Claude Code, with optional build pinning for debugging.
 //!
 //! One binary, three roles, chosen by the name it is invoked as:
 //!   * `cvm`           -> management CLI
@@ -72,6 +72,19 @@ fn aliases_dir() -> PathBuf {
 fn global_rc() -> PathBuf {
     cvm_home().join("global")
 }
+fn versions_flag() -> PathBuf {
+    cvm_home().join("versions-on")
+}
+/// Version pinning is a debugging feature: off unless switched on with `cvm version on`
+/// (or CVM_VERSIONS=1 for one terminal). While off, every session runs the installed build.
+fn versions_on() -> bool {
+    match env_nonempty("CVM_VERSIONS") {
+        Some(v) => v != "0",
+        None => versions_flag().is_file(),
+    }
+}
+const VERSIONS_OFF: &str =
+    "version pinning is off (it is a debugging feature); turn it on with: cvm version on";
 /// Where Claude Code's native installer keeps its builds.
 fn native_versions_dir() -> PathBuf {
     env::var_os("XDG_DATA_HOME")
@@ -241,6 +254,9 @@ fn selector(input: &str) -> Res<Sel> {
     if let Some(a) = &sel.account {
         require_account(a)?;
     }
+    if sel.version.is_some() && !versions_on() {
+        return Err(VERSIONS_OFF.into());
+    }
     if let Some(v) = &sel.version {
         if let Some(real) = expand_version(v)? {
             keep_version(&real)?;
@@ -313,6 +329,14 @@ fn resolve(forced: &Sel, forced_src: &str) -> Res<Resolved> {
         (v, "global (cvm use)".into())
     } else {
         (LATEST.into(), "built-in default".into())
+    };
+    let (label, version_src) = if label != LATEST && !versions_on() {
+        if forced.version.is_some() {
+            eprintln!("cvm: warning: ignoring version '{label}' from {version_src}: {VERSIONS_OFF}");
+        }
+        (LATEST.to_string(), format!("'{label}' from {version_src} ignored; version pinning is off"))
+    } else {
+        (label, version_src)
     };
     let version = expand_version(&label).map_err(|e| format!("{e} [from {version_src}]"))?;
 
@@ -494,9 +518,8 @@ fn make_launcher(stem: &str) -> Res<()> {
 // ---------------------------------------------------------------- CLI
 
 #[derive(Parser)]
-#[command(name = "cvm", version, about = "Account and version manager for Claude Code")]
-#[command(after_help = "A selector is account, account@version or @version, e.g. work, work@2.1.311, \
-work@stable, @latest. An alias name works anywhere a selector does.")]
+#[command(name = "cvm", version, about = "Account switcher for Claude Code")]
+#[command(after_help = "A selector is an account name or an alias, e.g. work. With version pinning on (cvm version on), it can also be account@version or @version, e.g. work@2.1.311 or @stable.")]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -505,18 +528,20 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     /// Manage accounts (separate Claude Code logins)
+    #[command(visible_alias = "profile")]
     Account {
         #[command(subcommand)]
         cmd: AccountCmd,
     },
-    /// Manage Claude Code versions
+    /// Debugging: pin Claude Code builds (off by default; see `cvm version on`)
+    #[command(display_order = 99)]
     Version {
         #[command(subcommand)]
         cmd: VersionCmd,
     },
     /// Sign an account in (same as: cvm account login)
     Login { account: String },
-    /// Save a selector under a short name, and as a command: cvm alias cw work@stable
+    /// Save a selector under a short name, and as a command: cvm alias cw work
     Alias {
         name: Option<String>,
         selector: Option<String>,
@@ -540,7 +565,7 @@ enum Cmd {
         #[arg(long)]
         unset: bool,
     },
-    /// Run Claude Code once with a selector: cvm run work@stable -- --continue
+    /// Run Claude Code once with a selector: cvm run work -- --continue
     Run {
         selector: String,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -549,7 +574,7 @@ enum Cmd {
     /// Show which account and version `claude` would use here, and why
     #[command(alias = "which")]
     Current,
-    /// Show accounts against versions, with aliases
+    /// List accounts and aliases (a grid against versions when version pinning is on)
     #[command(alias = "ls")]
     List,
     /// Install cvm, the `claude` shim and alias commands into cvm's bin folder
@@ -584,6 +609,10 @@ enum AccountCmd {
 
 #[derive(Subcommand)]
 enum VersionCmd {
+    /// Turn version pinning on
+    On,
+    /// Turn version pinning off (the default); saved pins and tags are kept but ignored
+    Off,
     /// List versions and tags
     #[command(alias = "ls")]
     List,
@@ -646,6 +675,9 @@ fn describe(sel: &Sel) -> String {
             _ => v.to_string(),
         },
     };
+    if !versions_on() {
+        return format!("account {account}");
+    }
     format!("account {account}, version {version}")
 }
 
@@ -685,7 +717,13 @@ fn cmd_account_list() -> Res<()> {
     for name in account_names() {
         let mark = if name == current { "*" } else { " " };
         let who = account_email(&name).unwrap_or_else(|| "not signed in".into());
-        say!("{mark} {name:<16} {who}");
+        let names: Vec<String> = aliases()
+            .into_iter()
+            .filter(|(_, s)| s.account.as_deref() == Some(name.as_str()))
+            .map(|(n, _)| n)
+            .collect();
+        let also = if names.is_empty() { String::new() } else { format!("   aliases: {}", names.join(", ")) };
+        say!("{mark} {name:<16} {who}{also}");
     }
     Ok(())
 }
@@ -834,7 +872,9 @@ fn cmd_current() -> Res<()> {
         Some(real) if *real != r.version_label => format!("{} ({real})", r.version_label),
         _ => r.version_label.clone(),
     };
-    say!("version : {shown}  <- {}", r.version_src);
+    if versions_on() || r.version_src.contains("ignored") {
+        say!("version : {shown}  <- {}", r.version_src);
+    }
     match real_claude(&r) {
         Ok(p) => say!("binary  : {}", p.display()),
         Err(e) => say!("binary  : {e}"),
@@ -844,6 +884,9 @@ fn cmd_current() -> Res<()> {
 
 /// Accounts down the side, versions across the top, alias names in the cells.
 fn cmd_list() -> Res<()> {
+    if !versions_on() {
+        return cmd_account_list();
+    }
     let now = resolve(&Sel::default(), "").ok();
     let tags = tags();
     let aliases = aliases();
@@ -926,6 +969,16 @@ fn cmd_setup() -> Res<()> {
 
 fn cmd_version(cmd: VersionCmd) -> Res<()> {
     match cmd {
+        VersionCmd::On => {
+            write_file(&versions_flag(), "on")?;
+            say!("Version pinning is on. Selectors now accept account@version and @version.");
+            Ok(())
+        }
+        VersionCmd::Off => {
+            let _ = fs::remove_file(versions_flag());
+            say!("Version pinning is off. Saved pins and tags are kept but ignored; every session runs the installed Claude Code.");
+            Ok(())
+        }
         VersionCmd::List => {
             let kept = kept_versions();
             let mut all: Vec<String> = names_in(native_versions_dir());
@@ -943,6 +996,8 @@ fn cmd_version(cmd: VersionCmd) -> Res<()> {
                 say!("  {v:<12} {k}  {}", names.join(", "));
             }
             say!("  {LATEST:<12}       whatever Claude Code is installed");
+            say!("");
+            say!("Version pinning is {}.", if versions_on() { "on" } else { "off (turn on with: cvm version on)" });
             Ok(())
         }
         VersionCmd::Install { version } => {

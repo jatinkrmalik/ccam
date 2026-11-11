@@ -60,7 +60,7 @@ Both download the latest release, verify its checksum, install into `~/.ccam/bin
 | Cargo | `cargo install ccam` | `ccam setup` |
 | Manual | Download from the [releases page](https://github.com/jatinkrmalik/ccam/releases) and unpack | `ccam setup` |
 
-`ccam setup` copies `ccam`, the `claude` shim and your alias commands into `~/.ccam/bin`, and prints the PATH line for your shell. That folder must come before the real `claude` on PATH. Run `ccam setup` again after upgrading.
+`ccam setup` copies `ccam`, the `claude` shim and your alias commands into `~/.ccam/bin`, and prints the PATH line for your shell. That folder must come before the real `claude` on PATH; `ccam doctor --fix` sets that up for you. Run `ccam setup` again after upgrading.
 
 You need Claude Code itself installed first; ccam switches accounts, it does not install Claude Code.
 
@@ -73,6 +73,7 @@ ccam use work            # global choice for plain `claude`
 ccam alias cw work       # `cw` now starts Claude Code as work
 ccam list                # accounts, who is signed in, aliases
 ccam current             # what `claude` would use here, and why
+ccam doctor              # check the setup; `ccam doctor --fix` repairs it
 ```
 
 ```
@@ -153,6 +154,33 @@ While it is on, a selector can carry a version, anywhere an account name is acce
 - `CCAM_VERSIONS=1` turns it on for one terminal.
 
 While it is off, version pins in `.ccamrc`, the global choice and aliases are kept but ignored, and `ccam current` says so. Tags and kept builds are not deleted.
+
+## Troubleshooting
+
+```bash
+ccam doctor
+```
+
+`ccam doctor` checks the whole setup and says what to do about anything that is wrong:
+
+- ccam and the `claude` shim are installed and up to date
+- `~/.ccam/bin` is on PATH, ahead of the real `claude`
+- Claude Code itself is installed
+- each account is signed in and its shared folders still exist
+- aliases and the nearest `.ccamrc` point at accounts that exist
+
+```
+  ok    ccam is installed in /home/you/.ccam/bin
+  ok    the `claude` shim is in place
+  FAIL  PATH: /usr/local/bin has a `claude` and comes before /home/you/.ccam/bin
+        fix it with: ccam doctor --fix
+  ok    Claude Code 2.1.316 at /usr/local/bin/claude
+  ok    account default: signed in as you@example.com
+  warn  account work: not signed in
+        run: ccam login work
+```
+
+`ccam doctor --fix` repairs what it can: it reinstalls the shim and alias commands, and puts `~/.ccam/bin` at the front of PATH. On Windows it changes your user PATH; on macOS and Linux it adds one line to your shell's startup file (`.zshrc`, `.bashrc`, `.bash_profile`, fish's `config.fish`, or `.profile`). Plain `ccam doctor` never changes anything.
 
 ## FAQ
 

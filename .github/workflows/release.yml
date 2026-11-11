@@ -1,8 +1,13 @@
 name: Release
 
 # Builds ccam for each platform and attaches the archives to the GitHub release
-# for the pushed tag. Create the release first (gh release create vX.Y.Z); that
+# for the pushed tag, then publishes the crate to crates.io and the wrapper
+# package to npm. Create the release first (gh release create vX.Y.Z); that
 # pushes the tag and starts this workflow.
+#
+# Publishing uses trusted publishing (OIDC): no tokens are stored. Both registries
+# must list this repository and the workflow file "release.yml" as a trusted
+# publisher. The Homebrew formula is updated by a workflow in the tap repository.
 on:
   push:
     tags: ["v*"]
@@ -32,8 +37,9 @@ jobs:
         shell: bash
         run: |
           version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $version"
+          npm_version=$(grep -m1 '"version"' npm/package.json | cut -d'"' -f4)
+          if [ "v$version" != "$GITHUB_REF_NAME" ] || [ "$npm_version" != "$version" ]; then
+            echo "Tag $GITHUB_REF_NAME, Cargo.toml ($version) and npm/package.json ($npm_version) must agree"
             exit 1
           fi
       - name: Install musl tools
@@ -69,3 +75,37 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$GITHUB_REF_NAME" "$ARCHIVE" "$ARCHIVE.sha256" --clobber
+
+  publish-crate:
+    name: Publish to crates.io
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  publish-npm:
+    name: Publish to npm
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+      - name: Use an npm new enough for trusted publishing
+        run: npm install -g npm@latest
+      - name: Publish
+        working-directory: npm
+        run: npm publish --access public

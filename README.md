@@ -217,3 +217,10 @@ cargo test
 ```
 
 On Windows, if a build fails with `LNK1104`, the project path is too long; set `CARGO_TARGET_DIR` to a short folder.
+
+### Releasing
+
+1. Set the same new version in `Cargo.toml` and `npm/package.json`, run `cargo build` to refresh `Cargo.lock`, and merge that to `main`.
+2. Create the release: `gh release create vX.Y.Z --target main --title "ccam X.Y.Z" --notes-file notes.md`.
+
+The release workflow then builds and attaches the binaries, and publishes to crates.io and npm. The [Homebrew tap](https://github.com/jatinkrmalik/homebrew-ccam) picks the new release up within an hour.

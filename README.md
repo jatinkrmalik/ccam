@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/icon.svg" width="112" alt="cvm icon"></p>
+
 # cvm
 
 ![version](https://img.shields.io/badge/version-0.2.0-2563eb)

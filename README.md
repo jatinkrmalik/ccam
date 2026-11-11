@@ -1,5 +1,12 @@
 # cvm
 
+![version](https://img.shields.io/badge/version-0.2.0-2563eb)
+![status](https://img.shields.io/badge/status-prototype-f59e0b)
+![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-64748b)
+![tested on](https://img.shields.io/badge/tested%20on-Windows-0ea5e9)
+![built with Rust](https://img.shields.io/badge/built%20with-Rust-b7410e?logo=rust&logoColor=white)
+![license](https://img.shields.io/badge/license-MIT-16a34a)
+
 Account and version manager for Claude Code: nvm, but for logins as well as builds.
 
 cvm puts a `claude` shim on your PATH. Every time you run `claude`, the shim picks an account and a version, then starts the real Claude Code. Works on Windows, macOS and Linux; one small binary, no runtime.

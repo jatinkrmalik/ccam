@@ -1,0 +1,2 @@
+*.sh text eol=lf
+npm/bin/ccam.js text eol=lf

@@ -35,3 +35,32 @@ jobs:
           ./target/release/ccam local work
           grep -q "account = work" .ccamrc
           ./target/release/ccam list
+
+  install:
+    name: Installers (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: install.sh
+        if: runner.os != 'Windows'
+        run: |
+          sh install.sh
+          "$HOME/.ccam/bin/ccam" --version
+          test -e "$HOME/.ccam/bin/claude"
+      - name: install.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./install.ps1
+          & "$env:USERPROFILE/.ccam/bin/ccam.exe" --version
+          if (-not (Test-Path "$env:USERPROFILE/.ccam/bin/claude.exe")) { exit 1 }
+      - name: npm package
+        shell: bash
+        run: |
+          cd npm
+          npm install -g .
+          ccam --version

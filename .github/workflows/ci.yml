@@ -56,8 +56,8 @@ jobs:
         shell: pwsh
         run: |
           ./install.ps1
-          & "$env:USERPROFILE\.ccamin\ccam.exe" --version
-          if (-not (Test-Path "$env:USERPROFILE\.ccamin\claude.exe")) { exit 1 }
+          & "$env:USERPROFILE/.ccam/bin/ccam.exe" --version
+          if (-not (Test-Path "$env:USERPROFILE/.ccam/bin/claude.exe")) { exit 1 }
       - name: npm package
         shell: bash
         run: |

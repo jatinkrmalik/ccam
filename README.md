@@ -6,7 +6,7 @@
   <a href="https://github.com/jatinkrmalik/ccam/actions/workflows/ci.yml"><img src="https://github.com/jatinkrmalik/ccam/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/jatinkrmalik/ccam/releases/latest"><img src="https://img.shields.io/github/v/release/jatinkrmalik/ccam?color=d97757" alt="Latest release"></a>
   <a href="https://crates.io/crates/ccam"><img src="https://img.shields.io/crates/v/ccam?color=b7410e" alt="crates.io"></a>
-  <a href="https://www.npmjs.com/package/ccam"><img src="https://img.shields.io/npm/v/ccam?color=cb3837" alt="npm"></a>
+  <a href="https://www.npmjs.com/package/ccam-cli"><img src="https://img.shields.io/npm/v/ccam-cli?color=cb3837" alt="npm"></a>
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-64748b" alt="Windows, macOS, Linux">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="MIT license"></a>
 </p>
@@ -56,7 +56,7 @@ Both download the latest release, verify its checksum, install into `~/.ccam/bin
 | Method | Command | Then |
 |---|---|---|
 | Homebrew (macOS, Linux) | `brew install jatinkrmalik/ccam/ccam` | `ccam setup` |
-| npm | `npm install -g ccam` | `ccam setup` |
+| npm | `npm install -g ccam-cli` | `ccam setup` |
 | Cargo | `cargo install ccam` | `ccam setup` |
 | Manual | Download from the [releases page](https://github.com/jatinkrmalik/ccam/releases) and unpack | `ccam setup` |
 
